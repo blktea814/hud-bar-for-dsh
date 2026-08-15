@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
       '.hudflt-session-picker{max-width:110px;background:rgba(255,255,255,0.08);color:#e2e8f0;border:1px solid rgba(255,255,255,0.14);border-radius:6px;font-size:12px;padding:2px 4px;outline:none;cursor:pointer}.hudflt-control{flex:1;min-width:0;max-width:none}.hudflt-control-wide{flex:1.6}',
       '.hudflt-btn{background:transparent;color:#94a3b8;border:1px solid transparent;border-radius:6px;padding:2px 7px;font-size:13px;line-height:1.4;cursor:pointer}.hudflt-btn:hover{background:rgba(255,255,255,0.1);color:#e2e8f0}.hudflt-btn-on{color:#818cf8}.hudflt-btn-close:hover{background:rgba(239,68,68,0.25);color:#fca5a5}',
       '.hudflt-body{flex:1;display:flex;flex-direction:column;min-height:0}',
-      '.hudflt-scroll{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin}',
+      '.hudflt-scroll{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;overflow-anchor:none}',
       '.hudflt-empty{color:#64748b;text-align:center;padding:24px 8px;font-size:12px}',
       '.hudflt-bubble{max-width:92%;padding:8px 10px;border-radius:10px;white-space:normal;word-break:break-word;line-height:1.55}',
       '.hudflt-user{align-self:flex-end;background:rgba(99,102,241,0.28);border:1px solid rgba(129,140,248,0.4)}',
@@ -370,17 +370,34 @@ window.__ModuleLoader__.load({
           var rowsKey = rows.length + ':' + (lastRow ? lastRow.text.length : 0)
           var pendingCount = pendingRef.current.length
 
-          // ---- autoscroll (页内) ----
-          React.useEffect(function () {
+          // ---- 跟随模式滚动（页内） ----
+          // followRef：用户是否在底部（跟随最新）。只有用户主动滚动才会改变它；
+          // 程序化跳顶（浏览器布局/scroll anchoring/DOM 更新时序）不会关闭跟随，
+          // 因此任何原因导致的“跳到旧记录”都会在下次渲染后立即拉回底部。
+          var followRef = React.useRef(true)
+          var suppressScrollRef = React.useRef(false)
+          var pipFollowRef = React.useRef(true)
+          var pipSuppressRef = React.useRef(false)
+          function handleScroll() {
+            if (suppressScrollRef.current) return
             var el = scrollRef.current
             if (!el) return
-            var nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-            if (nearBottom) el.scrollTop = el.scrollHeight
-          }, [rowsKey, pendingCount])
+            followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+          }
+          // 每次渲染后：跟随模式下始终定位到底部
+          React.useEffect(function () {
+            var el = scrollRef.current
+            if (!el || !followRef.current) return
+            suppressScrollRef.current = true
+            el.scrollTop = el.scrollHeight
+            var tid = setTimeout(function () { suppressScrollRef.current = false }, 100)
+            return function () { clearTimeout(tid) }
+          })
 
           // ---- 打开/回到页内时定位到最新消息（DOM 重建后 scrollTop 归零） ----
           React.useEffect(function () {
             if (hud.open && !hud.pip) {
+              followRef.current = true
               var el = scrollRef.current
               if (el) el.scrollTop = el.scrollHeight
             }
@@ -505,6 +522,7 @@ window.__ModuleLoader__.load({
             win.documentPictureInPicture.requestWindow({ width: 440, height: 620 }).then(function (w) {
               pipOpening = false
               pipWindow = w
+              pipFollowRef.current = true
               try {
                 w.document.title = 'HUD 悬浮条'
                 w.document.body.style.margin = '0'
@@ -572,6 +590,10 @@ window.__ModuleLoader__.load({
             controls.className = 'hudflt-controls'
             var scroll = doc.createElement('div')
             scroll.className = 'hudflt-scroll'
+            scroll.addEventListener('scroll', function () {
+              if (pipSuppressRef.current) return
+              pipFollowRef.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80
+            })
             var noticeEl = doc.createElement('div')
             noticeEl.className = 'hudflt-notice'
             noticeEl.style.display = 'none'
@@ -792,14 +814,22 @@ window.__ModuleLoader__.load({
                 for (var j = 0; j < merged.length; j++) r.scroll.appendChild(pipRowEl(merged[j]))
               }
               var sc = r.scroll
-              if (firstRender || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80) sc.scrollTop = sc.scrollHeight
+              if (firstRender || pipFollowRef.current) {
+                pipSuppressRef.current = true
+                sc.scrollTop = sc.scrollHeight
+                setTimeout(function () { pipSuppressRef.current = false }, 100)
+              }
             } else if (last && r.scroll.lastChild) {
               var bubble = r.scroll.lastChild
               var mdEl = bubble.lastChild
               if (mdEl && mdEl.className === 'hudflt-md') mdEl.innerHTML = mdHtml(last.text)
               else if (mdEl && typeof mdEl.textContent === 'string' && bubble.className.indexOf('hudflt-tool') >= 0) mdEl.textContent = last.text
               var sc2 = r.scroll
-              if (sc2.scrollHeight - sc2.scrollTop - sc2.clientHeight < 80) sc2.scrollTop = sc2.scrollHeight
+              if (pipFollowRef.current) {
+                pipSuppressRef.current = true
+                sc2.scrollTop = sc2.scrollHeight
+                setTimeout(function () { pipSuppressRef.current = false }, 100)
+              }
             }
           }
 
@@ -996,7 +1026,7 @@ window.__ModuleLoader__.load({
             }, [React.createElement('option', { key: 'ss-ph', value: '', disabled: true }, '会话')].concat(sessionOptions))
           )
 
-          var scroll = React.createElement('div', { className: 'hudflt-scroll', ref: scrollRef },
+          var scroll = React.createElement('div', { className: 'hudflt-scroll', ref: scrollRef, onScroll: handleScroll },
             rows.length === 0 && pendingVisible.length === 0
               ? React.createElement('div', { className: 'hudflt-empty' }, '暂无消息 — 直接输入即可向当前会话发消息')
               : items
