@@ -34,6 +34,13 @@ window.__ModuleLoader__.load({
       '.hudflt-tool{align-self:flex-start;background:rgba(30,41,59,0.5);border:1px dashed rgba(148,163,184,0.3);font-size:12px;color:#94a3b8;max-width:96%}.hudflt-tool-error{border-color:rgba(239,68,68,0.5);color:#fca5a5}.hudflt-tool-text{white-space:pre-wrap}',
       '.hudflt-tool-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#60a5fa;margin-bottom:3px}',
       '.hudflt-pending{opacity:0.6}',
+      '.hudflt-approval{margin:8px 10px 0;padding:8px 10px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4)}',
+      '.hudflt-approval-title{font-weight:600;font-size:12px;color:#fcd34d}',
+      '.hudflt-approval-reason{font-size:12px;color:#e2e8f0;margin-top:4px;word-break:break-word}',
+      '.hudflt-approval-actions{display:flex;gap:6px;margin-top:8px}',
+      '.hudflt-approval-allow,.hudflt-approval-deny{border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer}',
+      '.hudflt-approval-allow{background:#f59e0b;color:#1e1b0b}',
+      '.hudflt-approval-deny{background:rgba(239,68,68,0.25);color:#fca5a5}',
       '.hudflt-notice{margin:8px 10px 0;padding:5px 8px;border-radius:6px;background:rgba(239,68,68,0.15);color:#fca5a5;font-size:12px}',
       '.hudflt-composer{display:flex;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)}',
       '.hudflt-input{flex:1;resize:none;min-height:38px;max-height:120px;background:rgba(255,255,255,0.06);color:#e2e8f0;border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:6px 8px;font:inherit;outline:none}.hudflt-input:focus{border-color:rgba(129,140,248,0.6)}',
@@ -220,10 +227,16 @@ window.__ModuleLoader__.load({
         // ---- shared HUD state (package-lifetime, in-memory) ----
         var hudListeners = new Set()
         var hudState = { open: true, pip: false, pinned: false, sessionId: null, pos: { x: 24, y: 64 }, size: { w: 420, h: 560 } }
+        var lastOpen = hudState.open
         var getHud = function () { return hudState }
         var setHud = function (patch) {
           hudState = Object.assign({}, hudState, patch)
           Array.from(hudListeners).forEach(function (fn) { fn(hudState) })
+          // HUD 开/关变化时通知 Host（审批走 HUD 还是主界面）
+          if (hudState.open !== lastOpen) {
+            lastOpen = hudState.open
+            hudCall('POST', '/hud-api/set-open', { open: hudState.open }).catch(function () { /* ignore */ })
+          }
         }
         var subscribeHud = function (fn) {
           hudListeners.add(fn)
@@ -529,6 +542,8 @@ window.__ModuleLoader__.load({
             controls.className = 'hudflt-controls'
             var scroll = doc.createElement('div')
             scroll.className = 'hudflt-scroll'
+            var approvalBox = doc.createElement('div')
+            approvalBox.className = 'hudflt-approval-box'
             var noticeEl = doc.createElement('div')
             noticeEl.className = 'hudflt-notice'
             noticeEl.style.display = 'none'
@@ -561,6 +576,7 @@ window.__ModuleLoader__.load({
             composer.appendChild(sendBtn)
             bar.appendChild(header)
             bar.appendChild(controls)
+            bar.appendChild(approvalBox)
             bar.appendChild(scroll)
             bar.appendChild(noticeEl)
             bar.appendChild(composer)
@@ -569,6 +585,7 @@ window.__ModuleLoader__.load({
             pipRefs.controls = controls
             pipRefs.dot = dot
             pipRefs.title = title
+            pipRefs.approvalBox = approvalBox
             pipRefs.scroll = scroll
             pipRefs.notice = noticeEl
             pipRefs.input = input
@@ -677,6 +694,38 @@ window.__ModuleLoader__.load({
               r.notice.style.display = 'none'
             }
             if (r.sendBtn) r.sendBtn.disabled = pipSending || !sessionId || !(r.input && r.input.value.trim())
+            // 审批卡片（PiP）
+            if (r.approvalBox) {
+              r.approvalBox.textContent = ''
+              approvals.forEach(function (a) {
+                var card = pipWindow.document.createElement('div')
+                card.className = 'hudflt-approval'
+                var titleEl = pipWindow.document.createElement('div')
+                titleEl.className = 'hudflt-approval-title'
+                titleEl.textContent = '权限请求' + (a.toolName ? '：' + a.toolName : '')
+                card.appendChild(titleEl)
+                if (a.reason) {
+                  var reasonEl = pipWindow.document.createElement('div')
+                  reasonEl.className = 'hudflt-approval-reason'
+                  reasonEl.textContent = a.reason
+                  card.appendChild(reasonEl)
+                }
+                var actions = pipWindow.document.createElement('div')
+                actions.className = 'hudflt-approval-actions'
+                var allowBtn = pipWindow.document.createElement('button')
+                allowBtn.className = 'hudflt-approval-allow'
+                allowBtn.textContent = '允许一次'
+                allowBtn.addEventListener('click', function () { if (pipActionsRef.current) pipActionsRef.current.approve(a.approvalId, 'allowed-once') })
+                var denyBtn = pipWindow.document.createElement('button')
+                denyBtn.className = 'hudflt-approval-deny'
+                denyBtn.textContent = '拒绝'
+                denyBtn.addEventListener('click', function () { if (pipActionsRef.current) pipActionsRef.current.approve(a.approvalId, 'rejected') })
+                actions.appendChild(allowBtn)
+                actions.appendChild(denyBtn)
+                card.appendChild(actions)
+                r.approvalBox.appendChild(card)
+              })
+            }
             var controlsKey = sessionId + '|' + modelValue + '|' + effortValue + '|' + wsItems.map(function (w) { return w.workspaceId }).join(',') + '|' + modelGroups.map(function (g) { return g.id }).join(',') + '|' + efforts.length
             if (r.controlsKey !== controlsKey) {
               r.controlsKey = controlsKey
@@ -750,8 +799,20 @@ window.__ModuleLoader__.load({
           var running = sessionId ? Boolean(meta && meta.running) : false
           var statusRunning = running || (surface && surface.status === 'running')
 
+          // ---- 审批卡片 ----
+          var approvals = surface && Array.isArray(surface.approvals) ? surface.approvals : []
+          function approve(approvalId, outcome) {
+            hudCall('POST', '/hud-api/approve', { approvalId: approvalId, outcome: outcome }).catch(function () { /* 轮询会收敛 */ })
+            // 乐观移除：本地从 surface 剔除该卡片
+            setSurface(function (prev) {
+              if (!prev || !Array.isArray(prev.approvals)) return prev
+              return Object.assign({}, prev, { approvals: prev.approvals.filter(function (a) { return a.approvalId !== approvalId }) })
+            })
+          }
+
           // ---- PiP 同步 ----
-          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length
+          var approvalsKey = approvals.map(function (a) { return a.approvalId }).join(',')
+          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length + '|' + approvalsKey
           React.useEffect(function () {
             if (!hud.pip || !pipWindow) return
             pipActionsRef.current = {
@@ -760,6 +821,7 @@ window.__ModuleLoader__.load({
               setEffort: onEffortChange,
               setWorkspace: onWorkspaceChange,
               pickSession: onPickSession,
+              approve: approve,
             }
             syncPip()
           }, [pipSyncKey])
@@ -922,8 +984,19 @@ window.__ModuleLoader__.load({
             }),
             React.createElement('button', { className: 'hudflt-send', disabled: !draft.trim() || sending || !sessionId, onClick: send }, '发送')
           )
+          var approvalCards = approvals.map(function (a) {
+            return React.createElement('div', { key: a.approvalId, className: 'hudflt-approval' },
+              React.createElement('div', { className: 'hudflt-approval-title' }, '权限请求' + (a.toolName ? '：' + a.toolName : '')),
+              a.reason ? React.createElement('div', { className: 'hudflt-approval-reason' }, a.reason) : null,
+              React.createElement('div', { className: 'hudflt-approval-actions' },
+                React.createElement('button', { className: 'hudflt-approval-allow', onClick: function () { approve(a.approvalId, 'allowed-once') } }, '允许一次'),
+                React.createElement('button', { className: 'hudflt-approval-deny', onClick: function () { approve(a.approvalId, 'rejected') } }, '拒绝')
+              )
+            )
+          })
           var body = React.createElement('div', { className: 'hudflt-body' },
             notice ? React.createElement('div', { className: 'hudflt-notice' }, notice) : null,
+            approvalCards,
             scroll,
             composer
           )

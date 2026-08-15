@@ -122,6 +122,57 @@ export default {
       }
     }
 
+    // ---------- 审批（HUD 内批准权限） ----------
+    // 注意：要接管审批，本 bundle 需在 profile 的 dsh.profile.bundles 中排在
+    // @deepseek-ai/dsh-web-app 之前（这样本插件的 approval/request 监听器先于
+    // api-proxy 注册，链被本插件终结）。未前置时本监听器不会被执行，审批
+    // 维持主界面原样行为——插件安全降级。
+    let hudOpen = true
+    const pendingApprovals = new Map() // approvalId -> { sessionId, toolName, callId, reason, resolve }
+
+    ctx.on('approval/request', (req, next) => {
+      // HUD 未打开时透传给主界面（api-proxy 的 answerer）
+      if (!hudOpen) return next()
+      // 从会话日志反向查找未决的 approval/asked 事件（与 api-proxy 同一逻辑）
+      const events = req.agent.session.events
+      const decided = new Set()
+      let approvalId
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i]
+        if (event.type === 'approval/decided') decided.add(event.data.id)
+        else if (event.type === 'approval/asked') {
+          if (decided.has(event.data.id)) continue
+          if ((req.callId ?? null) !== (event.data.callId ?? null)) continue
+          approvalId = event.data.id
+          break
+        }
+      }
+      if (approvalId === undefined) return next()
+      return new Promise((resolve) => {
+        const settle = (outcome) => {
+          pendingApprovals.delete(approvalId)
+          req.signal?.removeEventListener('abort', onAbort)
+          resolve(outcome)
+        }
+        const onAbort = () => settle('cancelled')
+        req.signal?.addEventListener('abort', onAbort, { once: true })
+        pendingApprovals.set(approvalId, {
+          approvalId: approvalId,
+          sessionId: req.agent.session.id,
+          toolName: req.toolName,
+          callId: req.callId,
+          reason: req.reason,
+          resolve: settle,
+        })
+      })
+    })
+
+    ctx.effect(() => () => {
+      // 插件卸载时取消所有待审批，避免 agent 永久阻塞
+      for (const entry of pendingApprovals.values()) entry.resolve('cancelled')
+      pendingApprovals.clear()
+    }, 'hud: approval cleanup')
+
     // ---------- HTTP 工具 ----------
     function readBody(req) {
       return new Promise((resolve) => {
@@ -198,12 +249,16 @@ export default {
       }
       const agent = ctx.agents.get(sessionId)
       const status = agent ? (agent.status === 'running' ? 'running' : 'idle') : 'idle'
+      const approvals = Array.from(pendingApprovals.values())
+        .filter((a) => a.sessionId === sessionId)
+        .map((a) => ({ approvalId: a.approvalId, toolName: a.toolName, callId: a.callId, reason: a.reason }))
       return {
         rows: buffer.rows,
         status: status,
         cwd: header && header.cwd ? header.cwd : null,
         source: source,
         missing: false,
+        approvals: approvals,
       }
     }
 
@@ -341,6 +396,35 @@ export default {
 
     // ---------- HTTP 端点 ----------
     const routes = [
+      {
+        kind: 'exact',
+        path: '/hud-api/set-open',
+        handler: async (req, res) => {
+          const body = await readBody(req)
+          if (typeof body.open === 'boolean') hudOpen = body.open
+          sendJson(res, 200, { ok: true })
+        },
+      },
+      {
+        kind: 'exact',
+        path: '/hud-api/approve',
+        handler: async (req, res) => {
+          const body = await readBody(req)
+          const approvalId = typeof body.approvalId === 'string' ? body.approvalId : ''
+          const outcome = body.outcome === 'allowed-once' || body.outcome === 'rejected' ? body.outcome : null
+          if (!approvalId || !outcome) {
+            sendJson(res, 400, { ok: false, error: 'bad-args' })
+            return
+          }
+          const entry = pendingApprovals.get(approvalId)
+          if (!entry) {
+            sendJson(res, 404, { ok: false, error: 'not-pending' })
+            return
+          }
+          entry.resolve(outcome)
+          sendJson(res, 200, { ok: true })
+        },
+      },
       {
         kind: 'exact',
         path: '/hud-api/surface',
