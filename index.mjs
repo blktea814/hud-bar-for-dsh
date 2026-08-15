@@ -501,7 +501,10 @@ export default {
                 }),
               })
               const body = await resp.json()
-              if (!body || !body.result || body.result.ok !== true) { /* 官方同步失败不影响 override */ }
+              if (body && body.result && body.result.ok === true) {
+                // 通知主界面 UI：官方模型选择器监听 llm/adapters-updated 并自动重新查询
+                ctx.emit('llm/adapters-updated')
+              }
             } catch (error) { /* best-effort: override 已生效，官方同步失败不影响使用 */ }
             sendJson(res, 200, { ok: true, selected: selected })
           } catch (error) {
