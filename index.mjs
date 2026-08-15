@@ -1,13 +1,14 @@
 /**
  * hud-floating-bar — Host half (Cordis entry)
  *
- * Exposes four JSON endpoints over the DSH web server (same-origin with the
+ * Exposes five JSON endpoints over the DSH web server (same-origin with the
  * web UI, no auth required on the local surface):
  *
  *   GET  /hud-api/surface?sessionId=<id>  -> { rows, status, cwd, source, missing }
  *   POST /hud-api/send                    -> { ok, error? }
  *   GET  /hud-api/model?sessionId=<id>    -> { current, groups, failures }
  *   POST /hud-api/set-model               -> { ok, selected?, error? }
+ *   POST /hud-api/stop                    -> { ok, error? }  (stop generating)
  *
  * Business logic is identical to the dynamic-plugin implementation: an
  * incremental per-session transcript buffer (with streaming text folding),
@@ -448,6 +449,34 @@ export default {
             sendJson(res, 200, { ok: true, selected: selected })
           } catch (error) {
             sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+          }
+        },
+      },
+      {
+        kind: 'exact',
+        path: '/hud-api/stop',
+        handler: async (req, res) => {
+          const body = await readBody(req)
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+          if (!sessionId) {
+            sendJson(res, 400, { ok: false, error: 'bad-args' })
+            return
+          }
+          const agent = ctx.agents.get(sessionId)
+          if (!agent) {
+            sendJson(res, 409, { ok: false, error: 'not-live' })
+            return
+          }
+          if (agent.status !== 'running') {
+            sendJson(res, 200, { ok: false, error: 'not-running' })
+            return
+          }
+          try {
+            // 与网页版“停止生成”等价：以用户原因中止当前 agent 驱动
+            agent.cancel({ kind: 'user' })
+            sendJson(res, 200, { ok: true })
+          } catch (error) {
+            sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
           }
         },
       },

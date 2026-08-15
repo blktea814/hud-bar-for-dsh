@@ -35,9 +35,10 @@ window.__ModuleLoader__.load({
       '.hudflt-tool-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#60a5fa;margin-bottom:3px}',
       '.hudflt-pending{opacity:0.6}',
       '.hudflt-notice{margin:8px 10px 0;padding:5px 8px;border-radius:6px;background:rgba(239,68,68,0.15);color:#fca5a5;font-size:12px}',
-      '.hudflt-composer{display:flex;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)}',
+      '.hudflt-composer{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)}',
+      '.hudflt-composer-opts{display:flex;flex:1 1 100%;gap:6px}.hudflt-composer-opts select{flex:1;min-width:0;max-width:none}',
       '.hudflt-input{flex:1;resize:none;min-height:38px;max-height:120px;background:rgba(255,255,255,0.06);color:#e2e8f0;border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:6px 8px;font:inherit;outline:none}.hudflt-input:focus{border-color:rgba(129,140,248,0.6)}',
-      '.hudflt-send{border:none;border-radius:8px;padding:0 14px;background:#6366f1;color:#fff;font-size:13px;cursor:pointer}.hudflt-send:disabled{opacity:0.4;cursor:default}',
+      '.hudflt-send{border:none;border-radius:8px;padding:0 14px;background:#6366f1;color:#fff;font-size:13px;cursor:pointer}.hudflt-send:disabled{opacity:0.4;cursor:default}.hudflt-send.hudflt-stop{background:#dc2626}.hudflt-send.hudflt-stop:hover{background:#b91c1c}',
       '.hudflt-resize{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize}.hudflt-resize::before{content:\'\';position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:2px solid rgba(148,163,184,0.5);border-bottom:2px solid rgba(148,163,184,0.5);border-bottom-right-radius:3px}',
       '.hudflt-md pre{background:rgba(0,0,0,0.35);border-radius:6px;padding:6px 8px;overflow-x:auto;font-size:12px;margin:4px 0}.hudflt-md code{background:rgba(0,0,0,0.35);border-radius:4px;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.hudflt-md pre code{background:none;padding:0}.hudflt-md a{color:#818cf8;text-decoration:underline}.hudflt-md h1,.hudflt-md h2,.hudflt-md h3,.hudflt-md h4{margin:6px 0 2px;font-size:14px}.hudflt-md h5,.hudflt-md h6{margin:4px 0 2px;font-size:12px}.hudflt-md p{margin:2px 0}.hudflt-md ul,.hudflt-md ol{margin:2px 0;padding-left:18px}.hudflt-md blockquote{border-left:3px solid rgba(129,140,248,0.5);margin:4px 0;padding-left:8px;color:#b6c2d9}.hudflt-md hr{border:none;border-top:1px solid rgba(148,163,184,0.3);margin:6px 0}',
       '.hudflt-toggle{display:flex;align-items:center;justify-content:center;min-height:30px;padding:4px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap}.hudflt-toggle:hover{background:rgba(255,255,255,0.08);color:#e2e8f0}.hudflt-toggle-on{color:#818cf8;border-color:rgba(129,140,248,0.35)}',
@@ -458,6 +459,15 @@ window.__ModuleLoader__.load({
             })
           }
 
+          function stopGeneration() {
+            if (!sessionId) return
+            hudCall('POST', '/hud-api/stop', { sessionId: sessionId }).then(function (res) {
+              if (!res || !res.ok) setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+            }).catch(function (error) {
+              setNotice('停止失败：' + String(error))
+            })
+          }
+
           // ================= PiP 外置模式 =================
           function openPip() {
             if (pipOpening || pipWindow) return
@@ -553,18 +563,21 @@ window.__ModuleLoader__.load({
             input.addEventListener('keydown', function (e) {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                if (pipActionsRef.current) pipActionsRef.current.send()
+                if (pipActionsRef.current) pipActionsRef.current.onPrimary()
               } else if (e.key === 'Escape') {
                 if (pipWindow) pipWindow.close()
               }
             })
+            var composerOpts = doc.createElement('div')
+            composerOpts.className = 'hudflt-composer-opts'
             var sendBtn = doc.createElement('button')
             sendBtn.className = 'hudflt-send'
             sendBtn.textContent = '发送'
             sendBtn.disabled = true
             sendBtn.addEventListener('click', function () {
-              if (pipActionsRef.current) pipActionsRef.current.send()
+              if (pipActionsRef.current) pipActionsRef.current.onPrimary()
             })
+            composer.appendChild(composerOpts)
             composer.appendChild(input)
             composer.appendChild(sendBtn)
             bar.appendChild(header)
@@ -581,6 +594,7 @@ window.__ModuleLoader__.load({
             pipRefs.notice = noticeEl
             pipRefs.input = input
             pipRefs.sendBtn = sendBtn
+            pipRefs.composerOpts = composerOpts
             pipRefs.structuralKey = null
             pipRefs.controlsKey = null
           }
@@ -622,42 +636,50 @@ window.__ModuleLoader__.load({
               ss.appendChild(o)
             })
             ss.addEventListener('change', function () { if (pipActionsRef.current) pipActionsRef.current.pickSession(ss.value) })
-            var ms = makeSel('切换模型')
-            ms.className = 'hudflt-session-picker hudflt-control hudflt-control-wide'
-            var ph3 = doc.createElement('option')
-            ph3.value = ''
-            ph3.disabled = true
-            ph3.textContent = '模型'
-            ms.appendChild(ph3)
-            modelGroups.forEach(function (g) {
-              var og = doc.createElement('optgroup')
-              og.label = g.name
-              g.models.forEach(function (m) {
-                var o = doc.createElement('option')
-                o.value = g.id + '|' + m.id
-                o.textContent = m.name
-                og.appendChild(o)
+            function makeModelSelect(wide) {
+              var s = makeSel('切换模型')
+              if (wide) s.className = 'hudflt-session-picker hudflt-control hudflt-control-wide'
+              var ph3 = doc.createElement('option')
+              ph3.value = ''
+              ph3.disabled = true
+              ph3.textContent = '模型'
+              s.appendChild(ph3)
+              modelGroups.forEach(function (g) {
+                var og = doc.createElement('optgroup')
+                og.label = g.name
+                g.models.forEach(function (m) {
+                  var o = doc.createElement('option')
+                  o.value = g.id + '|' + m.id
+                  o.textContent = m.name
+                  og.appendChild(o)
+                })
+                s.appendChild(og)
               })
-              ms.appendChild(og)
-            })
-            ms.addEventListener('change', function () {
-              var v = ms.value
-              var idx = v.indexOf('|')
-              if (idx > 0 && pipActionsRef.current) pipActionsRef.current.setModel(v.slice(0, idx), v.slice(idx + 1))
-            })
-            var es = makeSel('推理强度')
-            var ph4 = doc.createElement('option')
-            ph4.value = ''
-            ph4.disabled = true
-            ph4.textContent = '推理'
-            es.appendChild(ph4)
-            efforts.forEach(function (e) {
-              var o = doc.createElement('option')
-              o.value = e.id
-              o.textContent = e.name
-              es.appendChild(o)
-            })
-            es.addEventListener('change', function () { if (pipActionsRef.current) pipActionsRef.current.setEffort(es.value) })
+              s.addEventListener('change', function () {
+                var v = s.value
+                var idx = v.indexOf('|')
+                if (idx > 0 && pipActionsRef.current) pipActionsRef.current.setModel(v.slice(0, idx), v.slice(idx + 1))
+              })
+              return s
+            }
+            function makeEffortSelect() {
+              var s = makeSel('推理强度')
+              var ph4 = doc.createElement('option')
+              ph4.value = ''
+              ph4.disabled = true
+              ph4.textContent = '推理'
+              s.appendChild(ph4)
+              efforts.forEach(function (e) {
+                var o = doc.createElement('option')
+                o.value = e.id
+                o.textContent = e.name
+                s.appendChild(o)
+              })
+              s.addEventListener('change', function () { if (pipActionsRef.current) pipActionsRef.current.setEffort(s.value) })
+              return s
+            }
+            var ms = makeModelSelect(true)
+            var es = makeEffortSelect()
             row.appendChild(ws)
             row.appendChild(ss)
             row.appendChild(ms)
@@ -669,6 +691,17 @@ window.__ModuleLoader__.load({
             pipRefs.ssSel = ss
             pipRefs.msSel = ms
             pipRefs.esSel = es
+            // 输入框上方的模型 / 推理强度（与页内 composer 一致）
+            var optsRow = pipRefs.composerOpts
+            if (optsRow) {
+              optsRow.textContent = ''
+              var ms2 = makeModelSelect(false)
+              var es2 = makeEffortSelect()
+              optsRow.appendChild(ms2)
+              optsRow.appendChild(es2)
+              pipRefs.cmsSel = ms2
+              pipRefs.cesSel = es2
+            }
           }
 
           function syncPip() {
@@ -684,7 +717,13 @@ window.__ModuleLoader__.load({
             } else {
               r.notice.style.display = 'none'
             }
-            if (r.sendBtn) r.sendBtn.disabled = pipSending || !sessionId || !(r.input && r.input.value.trim())
+            if (r.sendBtn) {
+              var stopping = statusRunning
+              r.sendBtn.textContent = stopping ? '停止生成' : '发送'
+              r.sendBtn.className = 'hudflt-send' + (stopping ? ' hudflt-stop' : '')
+              r.sendBtn.title = stopping ? '停止生成' : '发送消息'
+              r.sendBtn.disabled = stopping ? false : (pipSending || !sessionId || !(r.input && r.input.value.trim()))
+            }
             var controlsKey = sessionId + '|' + modelValue + '|' + effortValue + '|' + wsItems.map(function (w) { return w.workspaceId }).join(',') + '|' + modelGroups.map(function (g) { return g.id }).join(',') + '|' + efforts.length
             if (r.controlsKey !== controlsKey) {
               r.controlsKey = controlsKey
@@ -695,6 +734,8 @@ window.__ModuleLoader__.load({
               if (r.ssSel) r.ssSel.value = sessionId || ''
               if (r.msSel) r.msSel.value = modelValue
               if (r.esSel) r.esSel.value = effortValue
+              if (r.cmsSel) r.cmsSel.value = modelValue
+              if (r.cesSel) r.cesSel.value = effortValue
             } catch (error) { /* ignore */ }
             // 合并服务端行 + 乐观待确认行
             var merged = []
@@ -752,6 +793,15 @@ window.__ModuleLoader__.load({
             })
           }
 
+          function stopGenerationPip() {
+            if (!sessionId) return
+            hudCall('POST', '/hud-api/stop', { sessionId: sessionId }).then(function (res) {
+              if (!res || !res.ok) setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+            }).catch(function (error) {
+              setNotice('停止失败：' + String(error))
+            })
+          }
+
           var serverUserTexts = new Set()
           for (var ri = 0; ri < rows.length; ri++) if (rows[ri].kind === 'user') serverUserTexts.add(rows[ri].text)
           var pendingVisible = pendingRef.current.filter(function (t) { return !serverUserTexts.has(t) })
@@ -770,6 +820,10 @@ window.__ModuleLoader__.load({
               setEffort: onEffortChange,
               setWorkspace: onWorkspaceChange,
               pickSession: onPickSession,
+              onPrimary: function () {
+                if (statusRunning) stopGenerationPip()
+                else sendPip()
+              },
             }
             syncPip()
           }, [pipSyncKey])
@@ -916,7 +970,27 @@ window.__ModuleLoader__.load({
               ? React.createElement('div', { className: 'hudflt-empty' }, '暂无消息 — 直接输入即可向当前会话发消息')
               : items
           )
+          // ---- 输入框上方：模型 / 推理强度（与网页版 composer 一致） ----
+          var composerOpts = React.createElement('div', { className: 'hudflt-composer-opts' },
+            React.createElement('select', {
+              className: 'hudflt-session-picker hudflt-control',
+              value: modelValue,
+              onChange: function (e) {
+                var v = e.target.value
+                var idx = v.indexOf('|')
+                if (idx > 0) onModelChange(v.slice(0, idx), v.slice(idx + 1))
+              },
+              title: '切换模型（下一轮生效，同步保存为默认）',
+            }, [React.createElement('option', { key: 'm-ph', value: '', disabled: true }, '模型')].concat(modelOptions)),
+            React.createElement('select', {
+              className: 'hudflt-session-picker hudflt-control',
+              value: effortValue,
+              onChange: function (e) { onEffortChange(e.target.value) },
+              title: '推理强度',
+            }, effortOptions)
+          )
           var composer = React.createElement('div', { className: 'hudflt-composer' },
+            composerOpts,
             React.createElement('textarea', {
               ref: textareaRef,
               className: 'hudflt-input',
@@ -926,11 +1000,17 @@ window.__ModuleLoader__.load({
               onKeyDown: function (e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  send()
+                  if (statusRunning) stopGeneration()
+                  else send()
                 }
               },
             }),
-            React.createElement('button', { className: 'hudflt-send', disabled: !draft.trim() || sending || !sessionId, onClick: send }, '发送')
+            React.createElement('button', {
+              className: 'hudflt-send' + (statusRunning ? ' hudflt-stop' : ''),
+              disabled: statusRunning ? false : (!draft.trim() || sending || !sessionId),
+              onClick: statusRunning ? stopGeneration : send,
+              title: statusRunning ? '停止生成' : '发送消息',
+            }, statusRunning ? '停止生成' : '发送')
           )
           var body = React.createElement('div', { className: 'hudflt-body' },
             notice ? React.createElement('div', { className: 'hudflt-notice' }, notice) : null,
