@@ -9,7 +9,6 @@ Official bundle plugin for [DeepSeek Harness](https://github.com/NousResearch/de
 - **Floating HUD bar** — draggable, resizable, always-on-top overlay inside the web UI
 - **Live transcript** — realtime conversation with markdown rendering and streaming cursor; tool calls shown compactly
 - **Switchers** — workspace / session / model (grouped by provider) / reasoning effort
-- **In-HUD approvals** — pending permission requests render as cards with 允许一次 / 拒绝 buttons (optional: requires bundle-first ordering, see below)
 - **Picture-in-Picture detach** — Chrome/Edge 116+: pop the HUD into an OS-level always-on-top PiP window; works across other apps
 - **Pin / follow** — pin the HUD to one session or follow the active one
 - Keyboard: `Enter` send, `Shift+Enter` newline, `Esc` close (in-page)
@@ -32,25 +31,6 @@ dsh plugin --profile web add "github:owner/hud-floating-bar#main"
 
 Then **restart the web app**. The HUD bar appears at the top-left of the page; the sidebar footer also gets a toggle button.
 
-### Optional: enable in-HUD permission approvals
-
-By default permission requests keep going to the main conversation (the
-web-UI approval card). To let the HUD answer them instead, move the bundle
-**before** `@deepseek-ai/dsh-web-app` in the profile's bundle order — the
-HUD's `approval/request` answerer must register before the web UI's:
-
-```sh
-# edit ~/.dsh/profiles/web/package.json, reorder dsh.profile.bundles:
-#   "bundles": ["hud-floating-bar", "@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
-# then restart the web app
-```
-
-With this ordering:
-
-- HUD open → approvals appear in the HUD (允许一次 / 拒绝); the main UI does not show a card
-- HUD closed → approvals fall back to the main UI (unchanged behavior)
-- Plugin unload cancels all pending approvals (agents never hang)
-
 ## Usage
 
 - Type a message, press `Enter` to send — the reply streams into the bar (and the main conversation, same session)
@@ -69,16 +49,14 @@ hud-floating-bar/
 └── client/index.js      # browser bundle: HUD UI (__ModuleLoader__.load)
 ```
 
-The Node half serves six same-origin endpoints:
+The Node half serves four same-origin endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /hud-api/surface?sessionId=` | Incremental transcript rows + agent status + pending approvals |
+| `GET /hud-api/surface?sessionId=` | Incremental transcript rows + agent status |
 | `POST /hud-api/send` | Send a user message (official agent inbox) |
 | `GET /hud-api/model?sessionId=` | Model catalog + current selection |
 | `POST /hud-api/set-model` | Switch model / reasoning effort (next turn) |
-| `POST /hud-api/set-open` | Sync HUD open/closed state (approval routing) |
-| `POST /hud-api/approve` | Answer a pending approval (`allowed-once` / `rejected`) |
 
 ## Notes
 
