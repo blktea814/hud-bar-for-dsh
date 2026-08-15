@@ -1,25 +1,22 @@
 /**
  * hud-floating-bar — Host half (Cordis entry)
  *
- * Exposes seven JSON endpoints over the DSH web server (same-origin with the
+ * Exposes four JSON endpoints over the DSH web server (same-origin with the
  * web UI, no auth required on the local surface):
  *
- *   GET  /hud-api/surface?sessionId=<id>  -> { rows, status, cwd, source, missing, approvals }
+ *   GET  /hud-api/surface?sessionId=<id>  -> { rows, status, cwd, source, missing }
  *   POST /hud-api/send                    -> { ok, error? }
  *   GET  /hud-api/model?sessionId=<id>    -> { current, groups, failures }
  *   POST /hud-api/set-model               -> { ok, selected?, error? }
- *   POST /hud-api/set-open                -> { ok }            (HUD open state sync)
- *   POST /hud-api/approve                 -> { ok, error? }    (answer a pending approval)
- *   GET  /hud-api/debug                   -> { hudOpen, approvalListenerActive, pendingCount }
  *
- * IMPORTANT — approval listener ordering: to answer `approval/request` before
- * the web UI's api-proxy, the listener MUST be registered in apply() directly
- * (no service inject, which would defer apply until services appear and place
- * us AFTER api-proxy). Route registration alone waits on `webServer` via
- * ctx.inject. Business services are read lazily with ctx.get inside handlers.
+ * Business logic is identical to the dynamic-plugin implementation: an
+ * incremental per-session transcript buffer (with streaming text folding),
+ * user-message injection through the official agent inbox, and per-agent
+ * model/reasoning-effort override installed on the agent request waterfalls.
  */
 export default {
   name: 'hud-floating-bar',
+  inject: ['sessions', 'sessionPersistence', 'agents', 'llm', 'agentDefaultModel', 'webServer'],
   apply(ctx) {
     // 单行文本显示上限（字符）。500 过小导致长消息被截断；10000 覆盖
     // 几乎所有消息，仅对极端超长内容截断以保护轮询 payload 大小。
@@ -128,19 +125,14 @@ export default {
     }
 
     // ---------- 审批（HUD 内批准权限） ----------
-    // listener 在 apply 主体立即注册，不依赖任何服务——确保在 api-proxy 之前
-    // 进入 approval/request 链（api-proxy 的 listener 会终结该链）。若组合行
-    // 顺序晚于 @deepseek-ai/dsh-web-app，本监听器不会被执行，审批维持主界面
-    // 原样行为——插件安全降级。
+    // 注意：要接管审批，本 bundle 需在 profile 的 dsh.profile.bundles 中排在
+    // @deepseek-ai/dsh-web-app 之前（这样本插件的 approval/request 监听器先于
+    // api-proxy 注册，链被本插件终结）。未前置时本监听器不会被执行，审批
+    // 维持主界面原样行为——插件安全降级。
     let hudOpen = true
-    let approvalListenerActive = false
-    let approvalCount = 0
-    let lastApproval = null
-    const pendingApprovals = new Map() // approvalId -> { approvalId, sessionId, toolName, callId, reason, resolve }
+    const pendingApprovals = new Map() // approvalId -> { sessionId, toolName, callId, reason, resolve }
 
     ctx.on('approval/request', (req, next) => {
-      approvalListenerActive = true
-      approvalCount += 1
       // HUD 未打开时透传给主界面（api-proxy 的 answerer）
       if (!hudOpen) return next()
       // 从会话日志反向查找未决的 approval/asked 事件（与 api-proxy 同一逻辑）
@@ -158,12 +150,9 @@ export default {
         }
       }
       if (approvalId === undefined) return next()
-      const sessionId = req.agent.session.id
-      lastApproval = { approvalId: approvalId, sessionId: sessionId, toolName: req.toolName, at: Date.now() }
       return new Promise((resolve) => {
         const settle = (outcome) => {
           pendingApprovals.delete(approvalId)
-          if (lastApproval) lastApproval.outcome = outcome
           req.signal?.removeEventListener('abort', onAbort)
           resolve(outcome)
         }
@@ -171,7 +160,7 @@ export default {
         req.signal?.addEventListener('abort', onAbort, { once: true })
         pendingApprovals.set(approvalId, {
           approvalId: approvalId,
-          sessionId: sessionId,
+          sessionId: req.agent.session.id,
           toolName: req.toolName,
           callId: req.callId,
           reason: req.reason,
@@ -186,17 +175,104 @@ export default {
       pendingApprovals.clear()
     }, 'hud: approval cleanup')
 
-    // ---------- 模型 / 推理强度切换（服务惰性获取） ----------
+    // ---------- HTTP 工具 ----------
+    function readBody(req) {
+      return new Promise((resolve) => {
+        const chunks = []
+        req.on('data', (chunk) => chunks.push(chunk))
+        req.on('end', () => {
+          let parsed = {}
+          try {
+            const raw = Buffer.concat(chunks).toString('utf8')
+            if (raw) parsed = JSON.parse(raw)
+          } catch (error) {
+            parsed = {}
+          }
+          resolve(parsed)
+        })
+        req.on('error', () => resolve({}))
+      })
+    }
+
+    function sendJson(res, status, data) {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify(data))
+    }
+
+    // ---------- 会话转录 ----------
+    async function surfaceFor(sessionId) {
+      const empty = { rows: [], status: 'idle', missing: true }
+      if (!sessionId) return empty
+      const live = ctx.sessions.get(sessionId)
+      let events = null
+      let source = 'live'
+      let header = null
+      if (live) {
+        events = live.events
+        header = live.header
+      } else if (ctx.sessionPersistence) {
+        try {
+          const res = await ctx.sessionPersistence.readFrom(sessionId, 0)
+          events = res.events
+          header = res.meta
+          source = 'persisted'
+        } catch (error) {
+          return empty
+        }
+      }
+      if (!events) return empty
+      let buffer = buffers.get(sessionId)
+      if (buffer === undefined || buffer.source !== source) {
+        buffer = { source: source, ...buildRows(events) }
+        prune(buffer)
+        rememberBuffer(sessionId, buffer)
+      } else if (events.length > 0 && buffer.seq < events[events.length - 1].seq) {
+        let tail = []
+        if (source === 'live') {
+          tail = events.slice(buffer.seq + 1)
+        } else if (ctx.sessionPersistence) {
+          try {
+            tail = (await ctx.sessionPersistence.readFrom(sessionId, buffer.seq + 1)).events
+          } catch (error) {
+            tail = []
+          }
+        }
+        if (tail.length > 0) {
+          const built = buildRows(tail)
+          const offset = buffer.rows.length
+          for (const row of built.rows) buffer.rows.push(row)
+          for (const [key, entry] of built.streams) {
+            buffer.streams.set(key, { index: offset + entry.index, text: entry.text })
+          }
+          for (const [key, name] of built.tools) buffer.tools.set(key, name)
+          buffer.seq = built.seq
+          prune(buffer)
+        }
+      }
+      const agent = ctx.agents.get(sessionId)
+      const status = agent ? (agent.status === 'running' ? 'running' : 'idle') : 'idle'
+      const approvals = Array.from(pendingApprovals.values())
+        .filter((a) => a.sessionId === sessionId)
+        .map((a) => ({ approvalId: a.approvalId, toolName: a.toolName, callId: a.callId, reason: a.reason }))
+      return {
+        rows: buffer.rows,
+        status: status,
+        cwd: header && header.cwd ? header.cwd : null,
+        source: source,
+        missing: false,
+        approvals: approvals,
+      }
+    }
+
+    // ---------- 模型 / 推理强度切换 ----------
     const selections = new Map()
     const catalogCache = { at: 0, value: null }
     const MODEL_TTL = 60000
 
-    ctx.on('llm/adapters-updated', () => { catalogCache.value = null })
-
     async function modelCatalog() {
       const now = Date.now()
       if (catalogCache.value !== null && now - catalogCache.at < MODEL_TTL) return catalogCache.value
-      const llm = ctx.get('llm')
+      const llm = ctx.llm
       if (!llm) return { groups: [], failures: [] }
       const groups = []
       const failures = []
@@ -233,6 +309,8 @@ export default {
       return catalogCache.value
     }
 
+    ctx.on('llm/adapters-updated', () => { catalogCache.value = null })
+
     function currentSelectionFor(agent) {
       // 本插件已设置的 override 尚未被会话 header 记录（切换后未跑新轮）时优先返回，防止 UI 回退
       const entry = selections.get(agent.id)
@@ -247,7 +325,7 @@ export default {
           return { provider: config.provider, model: config.model, ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }) }
         }
       } catch (error) { /* fall through */ }
-      const adm = ctx.get('agentDefaultModel')
+      const adm = ctx.agentDefaultModel
       if (adm) {
         try {
           const s = adm.currentSelection()
@@ -318,114 +396,8 @@ export default {
       buffers.clear()
     }, 'hud: model selection cleanup')
 
-    // ---------- HTTP 工具 ----------
-    function readBody(req) {
-      return new Promise((resolve) => {
-        const chunks = []
-        req.on('data', (chunk) => chunks.push(chunk))
-        req.on('end', () => {
-          let parsed = {}
-          try {
-            const raw = Buffer.concat(chunks).toString('utf8')
-            if (raw) parsed = JSON.parse(raw)
-          } catch (error) {
-            parsed = {}
-          }
-          resolve(parsed)
-        })
-        req.on('error', () => resolve({}))
-      })
-    }
-
-    function sendJson(res, status, data) {
-      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify(data))
-    }
-
-    // ---------- 会话转录 ----------
-    async function surfaceFor(sessionId) {
-      const empty = { rows: [], status: 'idle', missing: true, approvals: [] }
-      if (!sessionId) return empty
-      const sessions = ctx.get('sessions')
-      const live = sessions ? sessions.get(sessionId) : undefined
-      const persistence = ctx.get('sessionPersistence')
-      let events = null
-      let source = 'live'
-      let header = null
-      if (live) {
-        events = live.events
-        header = live.header
-      } else if (persistence) {
-        try {
-          const res = await persistence.readFrom(sessionId, 0)
-          events = res.events
-          header = res.meta
-          source = 'persisted'
-        } catch (error) {
-          return empty
-        }
-      }
-      if (!events) return empty
-      let buffer = buffers.get(sessionId)
-      if (buffer === undefined || buffer.source !== source) {
-        buffer = { source: source, ...buildRows(events) }
-        prune(buffer)
-        rememberBuffer(sessionId, buffer)
-      } else if (events.length > 0 && buffer.seq < events[events.length - 1].seq) {
-        let tail = []
-        if (source === 'live') {
-          tail = events.slice(buffer.seq + 1)
-        } else if (persistence) {
-          try {
-            tail = (await persistence.readFrom(sessionId, buffer.seq + 1)).events
-          } catch (error) {
-            tail = []
-          }
-        }
-        if (tail.length > 0) {
-          const built = buildRows(tail)
-          const offset = buffer.rows.length
-          for (const row of built.rows) buffer.rows.push(row)
-          for (const [key, entry] of built.streams) {
-            buffer.streams.set(key, { index: offset + entry.index, text: entry.text })
-          }
-          for (const [key, name] of built.tools) buffer.tools.set(key, name)
-          buffer.seq = built.seq
-          prune(buffer)
-        }
-      }
-      const agents = ctx.get('agents')
-      const agent = agents ? agents.get(sessionId) : undefined
-      const status = agent ? (agent.status === 'running' ? 'running' : 'idle') : 'idle'
-      // 审批不过滤会话：HUD 是全局控制面，显示所有 pending 审批
-      const approvals = Array.from(pendingApprovals.values())
-        .map((a) => ({ approvalId: a.approvalId, sessionId: a.sessionId, toolName: a.toolName, callId: a.callId, reason: a.reason }))
-      return {
-        rows: buffer.rows,
-        status: status,
-        cwd: header && header.cwd ? header.cwd : null,
-        source: source,
-        missing: false,
-        approvals: approvals,
-      }
-    }
-
     // ---------- HTTP 端点 ----------
     const routes = [
-      {
-        kind: 'exact',
-        path: '/hud-api/debug',
-        handler: async (req, res) => {
-          sendJson(res, 200, {
-            hudOpen,
-            approvalListenerActive,
-            approvalCount,
-            lastApproval,
-            pendingCount: pendingApprovals.size,
-            pendingIds: Array.from(pendingApprovals.keys()),
-          })
-        },
-      },
       {
         kind: 'exact',
         path: '/hud-api/set-open',
@@ -476,8 +448,7 @@ export default {
             sendJson(res, 400, { ok: false, error: 'bad-args' })
             return
           }
-          const agents = ctx.get('agents')
-          const agent = agents ? agents.get(sessionId) : undefined
+          const agent = ctx.agents.get(sessionId)
           if (!agent) {
             sendJson(res, 409, { ok: false, error: 'not-live' })
             return
@@ -507,8 +478,7 @@ export default {
             sendJson(res, 200, empty)
             return
           }
-          const agents = ctx.get('agents')
-          const agent = agents ? agents.get(sessionId) : undefined
+          const agent = ctx.agents.get(sessionId)
           if (!agent) {
             sendJson(res, 200, empty)
             return
@@ -531,13 +501,12 @@ export default {
             sendJson(res, 400, { ok: false, error: 'bad-args' })
             return
           }
-          const agents = ctx.get('agents')
-          const agent = agents ? agents.get(sessionId) : undefined
+          const agent = ctx.agents.get(sessionId)
           if (!agent) {
             sendJson(res, 409, { ok: false, error: 'not-live' })
             return
           }
-          const llm = ctx.get('llm')
+          const llm = ctx.llm
           if (!llm) {
             sendJson(res, 503, { ok: false, error: 'no-llm' })
             return
@@ -554,7 +523,7 @@ export default {
               ...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }),
             }
             selectionFor(agent).selection.current = selected
-            const adm = ctx.get('agentDefaultModel')
+            const adm = ctx.agentDefaultModel
             if (adm) {
               try {
                 await adm.saveSelection({ provider: selected.provider, model: selected.model, ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) })
@@ -568,14 +537,11 @@ export default {
       },
     ]
 
-    // 路由注册等待 webServer 服务（仅此部分延迟，不影响 approval listener 顺序）
-    ctx.inject(['webServer'], (wsCtx) => {
-      const disposers = routes.map((route) => wsCtx.webServer.register(route))
-      ctx.effect(() => () => {
-        for (const dispose of disposers) {
-          try { dispose() } catch (error) { /* ignore */ }
-        }
-      }, 'hud: route cleanup')
-    })
+    const disposers = routes.map((route) => ctx.webServer.register(route))
+    ctx.effect(() => () => {
+      for (const dispose of disposers) {
+        try { dispose() } catch (error) { /* ignore */ }
+      }
+    }, 'hud: route cleanup')
   },
 }

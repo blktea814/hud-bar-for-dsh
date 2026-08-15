@@ -319,16 +319,11 @@ window.__ModuleLoader__.load({
                 setSurface(function (prev) {
                   var a = prev && Array.isArray(prev.rows) ? prev.rows : []
                   var b = Array.isArray(res.rows) ? res.rows : []
-                  var pa = prev && Array.isArray(prev.approvals) ? prev.approvals : []
-                  var pb = Array.isArray(res.approvals) ? res.approvals : []
-                  var sameRows = false
                   if (a.length > 0 && b.length === a.length) {
                     var la = a[a.length - 1]
                     var lb = b[b.length - 1]
-                    if (la && lb && la.seq === lb.seq && la.kind === lb.kind && la.text === lb.text) sameRows = true
+                    if (la && lb && la.seq === lb.seq && la.kind === lb.kind && la.text === lb.text) return prev
                   }
-                  var sameApprovals = pa.length === pb.length && pa.every(function (x, i) { return pb[i] && x.approvalId === pb[i].approvalId })
-                  if (sameRows && sameApprovals) return prev
                   return res
                 })
               }).catch(function () { /* transient */ })
