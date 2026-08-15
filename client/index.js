@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
       '.hudflt-tool-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#60a5fa;margin-bottom:3px}',
       '.hudflt-pending{opacity:0.6}',
       '.hudflt-notice{margin:8px 10px 0;padding:5px 8px;border-radius:6px;background:rgba(239,68,68,0.15);color:#fca5a5;font-size:12px}',
+      '.hudflt-approval{margin:8px 10px 0;padding:6px 10px;border-radius:8px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.45);color:#fbbf24;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}.hudflt-approval:hover{background:rgba(245,158,11,0.25)}',
       '.hudflt-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)}',
       '.hudflt-composer-opts{display:flex;flex:1 1 100%;gap:6px}.hudflt-composer-opts select{flex:1;min-width:0;max-width:none}',
       '.hudflt-input{flex:1;box-sizing:border-box;resize:none;min-height:38px;max-height:120px;background:rgba(255,255,255,0.06);color:#e2e8f0;border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:6px 8px;font:inherit;outline:none}.hudflt-input:focus{border-color:rgba(129,140,248,0.6)}',
@@ -323,9 +324,10 @@ window.__ModuleLoader__.load({
                 setSurface(function (prev) {
                   var a = prev && Array.isArray(prev.rows) ? prev.rows : []
                   var b = Array.isArray(res.rows) ? res.rows : []
-                  // status 变化（如 running -> idle）也必须触发更新，不能只比较消息行
-                  var statusChanged = prev === null || prev.status !== res.status
-                  if (!statusChanged && a.length > 0 && b.length === a.length) {
+                  // status / approvals 变化（如 running -> idle、出现待审批）也必须触发更新
+                  var prevKey = prev ? (prev.status || '') + '|' + JSON.stringify(prev.approvals || []) : null
+                  var nextKey = (res.status || '') + '|' + JSON.stringify(res.approvals || [])
+                  if (prevKey === nextKey && a.length > 0 && b.length === a.length) {
                     var la = a[a.length - 1]
                     var lb = b[b.length - 1]
                     if (la && lb && la.seq === lb.seq && la.kind === lb.kind && la.text === lb.text) return prev
@@ -573,6 +575,15 @@ window.__ModuleLoader__.load({
             var noticeEl = doc.createElement('div')
             noticeEl.className = 'hudflt-notice'
             noticeEl.style.display = 'none'
+            var approvalEl = doc.createElement('div')
+            approvalEl.className = 'hudflt-approval'
+            approvalEl.style.display = 'none'
+            approvalEl.addEventListener('click', function () {
+              try {
+                if (window.opener && window.opener.focus) window.opener.focus()
+                else if (window.focus) window.focus()
+              } catch (error) { /* ignore */ }
+            })
             var composer = doc.createElement('div')
             composer.className = 'hudflt-composer'
             var input = doc.createElement('textarea')
@@ -607,6 +618,7 @@ window.__ModuleLoader__.load({
             bar.appendChild(controls)
             bar.appendChild(scroll)
             bar.appendChild(noticeEl)
+            bar.appendChild(approvalEl)
             bar.appendChild(composer)
             doc.body.appendChild(bar)
             pipRefs.bar = bar
@@ -615,6 +627,7 @@ window.__ModuleLoader__.load({
             pipRefs.title = title
             pipRefs.scroll = scroll
             pipRefs.notice = noticeEl
+            pipRefs.approvalEl = approvalEl
             pipRefs.input = input
             pipRefs.sendBtn = sendBtn
             pipRefs.composerOpts = composerOpts
@@ -733,6 +746,14 @@ window.__ModuleLoader__.load({
             } else {
               r.notice.style.display = 'none'
             }
+            if (r.approvalEl) {
+              if (approvals.length > 0) {
+                r.approvalEl.textContent = '⚠ ' + (curPending ? '当前会话有 ' : '有 ') + approvals.length + ' 个待审批请求，请回主界面批准'
+                r.approvalEl.style.display = ''
+              } else {
+                r.approvalEl.style.display = 'none'
+              }
+            }
             if (r.sendBtn) {
               var stopping = statusRunning
               r.sendBtn.innerHTML = stopping ? ICON_STOP_HTML : ICON_SEND_HTML
@@ -831,8 +852,13 @@ window.__ModuleLoader__.load({
           var running = sessionId ? Boolean(meta && meta.running) : false
           var statusRunning = running || (surface && surface.status === 'running')
 
+          // ---- 待审批提示（只读，提示用户回主界面批准） ----
+          var approvals = surface && Array.isArray(surface.approvals) ? surface.approvals : []
+          var approvalsKey = approvals.map(function (ap) { return ap.id + ':' + ap.sessionId }).join(',')
+          var curPending = approvals.some(function (ap) { return ap.sessionId === sessionId })
+
           // ---- PiP 同步 ----
-          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length + '|' + tick
+          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length + '|' + tick + '|' + approvalsKey
           React.useEffect(function () {
             if (!hud.pip || !pipWindow) return
             pipActionsRef.current = {
@@ -1019,6 +1045,18 @@ window.__ModuleLoader__.load({
           )
           var body = React.createElement('div', { className: 'hudflt-body' },
             notice ? React.createElement('div', { className: 'hudflt-notice' }, notice) : null,
+            approvals.length > 0
+              ? React.createElement('div', {
+                  className: 'hudflt-approval',
+                  title: '点击回到主界面处理审批',
+                  onClick: function () {
+                    try {
+                      if (window.focus) window.focus()
+                      if (window.parent && window.parent.focus && window.parent !== window) window.parent.focus()
+                    } catch (error) { /* ignore */ }
+                  },
+                }, '⚠ ' + (curPending ? '当前会话有 ' : '有 ') + approvals.length + ' 个待审批请求，请回主界面批准')
+              : null,
             scroll,
             composer
           )

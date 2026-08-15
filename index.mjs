@@ -41,6 +41,36 @@ export default {
 
     const buffers = new Map()
 
+    // ---------- 待审批请求观察（只读，不接管审批链） ----------
+    // 通过 session/event 全局事件监听 approval/asked + approval/decided 审计对，
+    // 把“有待审批”状态带给 HUD 提示，让用户知道需要回主界面批准。
+    const pendingApprovals = new Map() // id -> { sessionId, toolName, reason, at }
+    const APPROVAL_TTL = 15 * 60 * 1000
+    ctx.on('session/event', (session, event) => {
+      if (!event || typeof event.type !== 'string') return
+      const data = event.data || {}
+      if (event.type === 'approval/asked' && typeof data.id === 'string') {
+        pendingApprovals.set(data.id, {
+          sessionId: session && session.id ? session.id : '',
+          toolName: typeof data.toolName === 'string' ? data.toolName : 'tool',
+          reason: typeof data.reason === 'string' ? data.reason : '',
+          at: Date.now(),
+        })
+      } else if (event.type === 'approval/decided' && typeof data.id === 'string') {
+        pendingApprovals.delete(data.id)
+      }
+    })
+
+    function pendingApprovalsList() {
+      const now = Date.now()
+      const list = []
+      for (const entry of pendingApprovals.values()) {
+        if (now - entry.at > APPROVAL_TTL) continue
+        list.push(entry)
+      }
+      return list
+    }
+
     function rememberBuffer(sessionId, buffer) {
       buffers.set(sessionId, buffer)
       // LRU 上限：防止长期使用内存增长
@@ -207,6 +237,7 @@ export default {
         cwd: header && header.cwd ? header.cwd : null,
         source: source,
         missing: false,
+        approvals: pendingApprovalsList(),
       }
     }
 
@@ -340,6 +371,7 @@ export default {
       }
       selections.clear()
       buffers.clear()
+      pendingApprovals.clear()
     }, 'hud: model selection cleanup')
 
     // ---------- HTTP 端点 ----------
