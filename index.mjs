@@ -478,17 +478,30 @@ export default {
                 await adm.saveSelection({ provider: selected.provider, model: selected.model, ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) })
               } catch (error) { /* best-effort */ }
             }
-            // 同步官方会话选择（主界面模型选择器的数据源），让网页版 UI 立即反映切换
+            // 同步官方会话选择（主界面模型选择器的数据源），让网页版 UI 反映切换。
+            // 注意：apiProxy.sessions.selectModel 走 C→S HTTP carrier（INTERNAL_BASE 是假域名，
+            // Host 内调用必然失败），因此直接以真实回环地址调用官方 /api/session.selectModel。
             try {
-              const apiProxy = ctx.get('apiProxy')
-              if (apiProxy && apiProxy.sessions && typeof apiProxy.sessions.selectModel === 'function') {
-                await apiProxy.sessions.selectModel({
-                  sessionId: sessionId,
-                  provider: selected.provider,
-                  model: selected.model,
-                  ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
-                })
-              }
+              const ws = ctx.webServer
+              const origin = 'http://' + (ws.host === '0.0.0.0' ? '127.0.0.1' : ws.host) + ':' + ws.port
+              const rpcId = crypto.randomUUID()
+              const resp = await fetch(origin + '/api/session.selectModel', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'client-request',
+                  rpcId: rpcId,
+                  method: 'session.selectModel',
+                  payload: {
+                    sessionId: sessionId,
+                    provider: selected.provider,
+                    model: selected.model,
+                    ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
+                  },
+                }),
+              })
+              const body = await resp.json()
+              if (!body || !body.result || body.result.ok !== true) { /* 官方同步失败不影响 override */ }
             } catch (error) { /* best-effort: override 已生效，官方同步失败不影响使用 */ }
             sendJson(res, 200, { ok: true, selected: selected })
           } catch (error) {
