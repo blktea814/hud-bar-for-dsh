@@ -478,6 +478,18 @@ export default {
                 await adm.saveSelection({ provider: selected.provider, model: selected.model, ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) })
               } catch (error) { /* best-effort */ }
             }
+            // 同步官方会话选择（主界面模型选择器的数据源），让网页版 UI 立即反映切换
+            try {
+              const apiProxy = ctx.get('apiProxy')
+              if (apiProxy && apiProxy.sessions && typeof apiProxy.sessions.selectModel === 'function') {
+                await apiProxy.sessions.selectModel({
+                  sessionId: sessionId,
+                  provider: selected.provider,
+                  model: selected.model,
+                  ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
+                })
+              }
+            } catch (error) { /* best-effort: override 已生效，官方同步失败不影响使用 */ }
             sendJson(res, 200, { ok: true, selected: selected })
           } catch (error) {
             sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
