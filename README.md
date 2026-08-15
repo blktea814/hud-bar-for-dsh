@@ -21,8 +21,6 @@ Official bundle plugin for [DeepSeek Harness](https://github.com/NousResearch/de
 
 ![Floating HUD bar](screenshots/hud-bar.png)
 
-![Picture-in-Picture detach](screenshots/pip-mode.png)
-
 ## Install
 
 Requires a DSH web profile (0.1.0-rc.6+).
