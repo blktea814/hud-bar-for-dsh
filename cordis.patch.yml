@@ -1,0 +1,4 @@
+# hud-floating-bar：向组合挂载 Node half（HUD API 路由）
+- insert:
+    - id: hud-floating-bar
+      name: 'hud-floating-bar'
