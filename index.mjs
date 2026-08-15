@@ -128,9 +128,11 @@ export default {
     // api-proxy 注册，链被本插件终结）。未前置时本监听器不会被执行，审批
     // 维持主界面原样行为——插件安全降级。
     let hudOpen = true
+    let approvalListenerActive = false
     const pendingApprovals = new Map() // approvalId -> { sessionId, toolName, callId, reason, resolve }
 
     ctx.on('approval/request', (req, next) => {
+      approvalListenerActive = true
       // HUD 未打开时透传给主界面（api-proxy 的 answerer）
       if (!hudOpen) return next()
       // 从会话日志反向查找未决的 approval/asked 事件（与 api-proxy 同一逻辑）
@@ -396,6 +398,18 @@ export default {
 
     // ---------- HTTP 端点 ----------
     const routes = [
+      {
+        kind: 'exact',
+        path: '/hud-api/debug',
+        handler: async (req, res) => {
+          sendJson(res, 200, {
+            hudOpen,
+            approvalListenerActive,
+            pendingCount: pendingApprovals.size,
+            pendingIds: Array.from(pendingApprovals.keys()),
+          })
+        },
+      },
       {
         kind: 'exact',
         path: '/hud-api/set-open',
