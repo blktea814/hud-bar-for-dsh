@@ -319,7 +319,9 @@ window.__ModuleLoader__.load({
                 setSurface(function (prev) {
                   var a = prev && Array.isArray(prev.rows) ? prev.rows : []
                   var b = Array.isArray(res.rows) ? res.rows : []
-                  if (a.length > 0 && b.length === a.length) {
+                  // status 变化（如 running -> idle）也必须触发更新，不能只比较消息行
+                  var statusChanged = prev === null || prev.status !== res.status
+                  if (!statusChanged && a.length > 0 && b.length === a.length) {
                     var la = a[a.length - 1]
                     var lb = b[b.length - 1]
                     if (la && lb && la.seq === lb.seq && la.kind === lb.kind && la.text === lb.text) return prev
@@ -474,7 +476,12 @@ window.__ModuleLoader__.load({
           function stopGeneration() {
             if (!sessionId) return
             hudCall('POST', '/hud-api/stop', { sessionId: sessionId }).then(function (res) {
-              if (!res || !res.ok) setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+              if (res && res.ok) {
+                // 乐观更新：按钮立即恢复为“发送”，轮询随后确认
+                setSurface(function (prev) { return prev ? Object.assign({}, prev, { status: 'idle' }) : prev })
+              } else {
+                setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+              }
             }).catch(function (error) {
               setNotice('停止失败：' + String(error))
             })
@@ -799,7 +806,12 @@ window.__ModuleLoader__.load({
           function stopGenerationPip() {
             if (!sessionId) return
             hudCall('POST', '/hud-api/stop', { sessionId: sessionId }).then(function (res) {
-              if (!res || !res.ok) setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+              if (res && res.ok) {
+                // 乐观更新：按钮立即恢复为“发送”，轮询随后确认
+                setSurface(function (prev) { return prev ? Object.assign({}, prev, { status: 'idle' }) : prev })
+              } else {
+                setNotice('停止失败：' + ((res && res.error) ? res.error : 'unknown'))
+              }
             }).catch(function (error) {
               setNotice('停止失败：' + String(error))
             })
