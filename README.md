@@ -30,7 +30,7 @@ dsh plugin --profile web add "/path/to/hud-floating-bar"
 Or from git (artifacts checked in, one-line install):
 
 ```sh
-dsh plugin --profile web add "github:blktea814/hud-floating-bar#main"
+dsh plugin --profile web add "github:blktea814/hud-bar-for-dsh#main"
 ```
 
 Then **restart the web app**. The HUD bar appears at the top-left of the page; the sidebar footer also gets a toggle button.

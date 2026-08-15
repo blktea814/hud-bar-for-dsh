@@ -30,7 +30,7 @@ dsh plugin --profile web add "/path/to/hud-floating-bar"
 或从 git 一行安装：
 
 ```sh
-dsh plugin --profile web add "github:blktea814/hud-floating-bar#main"
+dsh plugin --profile web add "github:blktea814/hud-bar-for-dsh#main"
 ```
 
 安装后**重启 web 应用**。HUD 条出现在页面左上角，侧栏底部也会多出一个开关按钮。
