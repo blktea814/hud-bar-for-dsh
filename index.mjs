@@ -21,7 +21,9 @@
 export default {
   name: 'hud-floating-bar',
   apply(ctx) {
-    const CAP = 500
+    // 单行文本显示上限（字符）。500 过小导致长消息被截断；10000 覆盖
+    // 几乎所有消息，仅对极端超长内容截断以保护轮询 payload 大小。
+    const CAP = 10000
     const MAX_ROWS = 150
     const MAX_BUFFERS = 30
 
