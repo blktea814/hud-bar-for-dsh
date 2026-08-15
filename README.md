@@ -8,7 +8,8 @@ Official bundle plugin for [DeepSeek Harness](https://github.com/NousResearch/de
 
 - **Floating HUD bar** — draggable, resizable, always-on-top overlay inside the web UI
 - **Live transcript** — realtime conversation with markdown rendering and streaming cursor; tool calls shown compactly
-- **Switchers** — workspace / session / model (grouped by provider) / reasoning effort
+- **Switchers** — workspace / session / model (grouped by provider) / reasoning effort, also inline above the composer
+- **Send / Stop generating** — the primary button becomes 停止生成 while the agent is running (page and PiP), like the main web composer
 - **Picture-in-Picture detach** — Chrome/Edge 116+: pop the HUD into an OS-level always-on-top PiP window; works across other apps
 - **Pin / follow** — pin the HUD to one session or follow the active one
 - Keyboard: `Enter` send, `Shift+Enter` newline, `Esc` close (in-page)
@@ -34,6 +35,7 @@ Then **restart the web app**. The HUD bar appears at the top-left of the page; t
 ## Usage
 
 - Type a message, press `Enter` to send — the reply streams into the bar (and the main conversation, same session)
+- Above the input: model / reasoning effort selectors; the primary button turns into 停止生成 while the agent runs
 - Top row: status dot, session title, `外置` (PiP detach), pin/follow, close
 - Second row: workspace / session / model / reasoning effort selectors
 - Drag the header to move, drag the bottom-right corner to resize
