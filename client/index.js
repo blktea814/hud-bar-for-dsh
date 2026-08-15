@@ -421,12 +421,24 @@ window.__ModuleLoader__.load({
             })
           }
 
+          function refreshModelInfo() {
+            return hudCall('GET', modelPath(sessionId)).then(function (res) {
+              if (res) setModelInfo(res)
+            }).catch(function () { /* ignore */ })
+          }
+
           function onModelChange(provider, model) {
             if (!sessionId || !provider || !model) return Promise.resolve()
             var group = modelGroups.find(function (g) { return g.id === provider })
             var entry = group ? group.models.find(function (m) { return m.id === model }) : null
             var supported = (entry && entry.reasoning && Array.isArray(entry.reasoning.efforts)) ? entry.reasoning.efforts : []
             var keepEffort = currentSel && currentSel.reasoningEffort && supported.some(function (e) { return e.id === currentSel.reasoningEffort })
+            // 乐观更新：立即显示目标选择（避免异步期间选择器回跳/无响应）
+            applySelection({
+              provider: provider,
+              model: model,
+              ...(keepEffort ? { reasoningEffort: currentSel.reasoningEffort } : {}),
+            })
             return hudCall('POST', '/hud-api/set-model', {
               sessionId: sessionId,
               provider: provider,
@@ -434,14 +446,21 @@ window.__ModuleLoader__.load({
               ...(keepEffort ? { reasoningEffort: currentSel.reasoningEffort } : {}),
             }).then(function (res) {
               if (res && res.ok && res.selected) applySelection(res.selected)
-              else if (res && res.error) setNotice('切换模型失败：' + res.error)
+              else {
+                if (res && res.error) setNotice('切换模型失败：' + res.error)
+                // 失败回滚到服务端实际选择
+                refreshModelInfo()
+              }
             }).catch(function (error) {
               setNotice('切换模型失败：' + String(error))
+              refreshModelInfo()
             })
           }
 
           function onEffortChange(effort) {
             if (!sessionId || !currentSel || !currentSel.provider || !currentSel.model) return Promise.resolve()
+            // 乐观更新：立即显示目标推理强度
+            applySelection(Object.assign({}, currentSel, { reasoningEffort: effort || undefined }))
             return hudCall('POST', '/hud-api/set-model', {
               sessionId: sessionId,
               provider: currentSel.provider,
@@ -449,9 +468,13 @@ window.__ModuleLoader__.load({
               ...(effort ? { reasoningEffort: effort } : {}),
             }).then(function (res) {
               if (res && res.ok && res.selected) applySelection(res.selected)
-              else if (res && res.error) setNotice('切换推理强度失败：' + res.error)
+              else {
+                if (res && res.error) setNotice('切换推理强度失败：' + res.error)
+                refreshModelInfo()
+              }
             }).catch(function (error) {
               setNotice('切换推理强度失败：' + String(error))
+              refreshModelInfo()
             })
           }
 
