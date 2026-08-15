@@ -1,6 +1,6 @@
 # HUD Floating Bar
 
-DSH 悬浮 HUD 聊天条：始终置顶的悬浮面板，内含实时会话转录（Markdown 渲染、流式输出）、工作区/会话/模型/推理强度切换，以及画中画（PiP）外置模式——在 Chrome/Edge 下可弹出为 OS 级置顶窗口，盖在其他应用之上。
+DSH 悬浮 HUD 聊天条：始终置顶的悬浮面板，画中画（PiP）外置模式——在 Chrome/Edge 下可弹出为 OS 级置顶窗口，覆盖在其他应用之上。
 
 Official bundle plugin for [DeepSeek Harness](https://github.com/NousResearch/deepseek-harness).
 
