@@ -299,6 +299,10 @@ window.__ModuleLoader__.load({
           var pendingRef = React.useRef([])
           var scrollRef = React.useRef(null)
           var textareaRef = React.useRef(null)
+          // PiP 发送后强制重渲染的 tick（sendPip 无其它 state 变化时用）
+          var tickState = React.useState(0)
+          var tick = tickState[0]
+          var setTick = tickState[1]
 
           var sessionId = hud.pinned ? hud.sessionId : current
           if (!sessionId || !byId[sessionId]) sessionId = current && byId[current] ? current : (ids[0] || null)
@@ -800,6 +804,8 @@ window.__ModuleLoader__.load({
             }).finally(function () {
               pipSending = false
               if (pipRefs.sendBtn && pipRefs.input) pipRefs.sendBtn.disabled = !pipRefs.input.value.trim()
+              // 强制重渲染：pendingVisible 需要立即同步到 PiP（无其它 state 变化时）
+              setTick(function (t) { return t + 1 })
             })
           }
 
@@ -826,7 +832,7 @@ window.__ModuleLoader__.load({
           var statusRunning = running || (surface && surface.status === 'running')
 
           // ---- PiP 同步 ----
-          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length
+          var pipSyncKey = (hud.pip ? '1' : '0') + '|' + rowsKey + '|' + pendingCount + '|' + (statusRunning ? '1' : '0') + '|' + title + '|' + (notice || '') + '|' + (sessionId || '') + '|' + modelValue + '|' + effortValue + '|' + wsValue + '|' + modelGroups.length + '|' + wsItems.length + '|' + tick
           React.useEffect(function () {
             if (!hud.pip || !pipWindow) return
             pipActionsRef.current = {
