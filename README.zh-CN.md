@@ -17,6 +17,12 @@ DSH 悬浮 HUD 聊天条：始终置顶的悬浮面板，画中画（PiP）外�
 - **固定与跟随** — 固定到某会话，或跟随当前活跃会话
 - 快捷键：`Enter` 发送、`Shift+Enter` 换行、`Esc` 关闭（页内）
 
+## 截图
+
+![悬浮 HUD 条](screenshots/hud-bar.png)
+
+![画中画外置](screenshots/pip-mode.png)
+
 ## 安装
 
 需要 DSH web profile（0.1.0-rc.6 及以上）。

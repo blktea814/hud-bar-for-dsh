@@ -17,6 +17,12 @@ Official bundle plugin for [DeepSeek Harness](https://github.com/NousResearch/de
 - **Pin / follow** — pin the HUD to one session or follow the active one
 - Keyboard: `Enter` send, `Shift+Enter` newline, `Esc` close (in-page)
 
+## Screenshots
+
+![Floating HUD bar](screenshots/hud-bar.png)
+
+![Picture-in-Picture detach](screenshots/pip-mode.png)
+
 ## Install
 
 Requires a DSH web profile (0.1.0-rc.6+).
