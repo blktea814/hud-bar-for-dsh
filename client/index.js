@@ -297,7 +297,8 @@ window.__ModuleLoader__.load({
           var sendingState = React.useState(false)
           var sending = sendingState[0]
           var setSending = sendingState[1]
-          var pendingRef = React.useRef([])
+          // 乐观待确认消息：按会话分组（防止串会话显示为灰色 pending）
+          var pendingBySession = React.useRef({})
           var scrollRef = React.useRef(null)
           var textareaRef = React.useRef(null)
           // PiP 发送后强制重渲染的 tick（sendPip 无其它 state 变化时用）
@@ -368,7 +369,7 @@ window.__ModuleLoader__.load({
           var rows = surface && Array.isArray(surface.rows) ? surface.rows : []
           var lastRow = rows.length > 0 ? rows[rows.length - 1] : null
           var rowsKey = rows.length + ':' + (lastRow ? lastRow.text.length : 0)
-          var pendingCount = pendingRef.current.length
+          var pendingCount = (pendingBySession.current[sessionId] || []).length
 
           // ---- 跟随模式滚动（页内） ----
           // followRef：用户是否在底部（跟随最新）。只有用户主动滚动才会改变它；
@@ -476,11 +477,11 @@ window.__ModuleLoader__.load({
             if (!text.trim() || !sessionId || sending) return
             setSending(true)
             setNotice('')
-            pendingRef.current = pendingRef.current.concat([text])
+            pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).concat([text])
             setDraft('')
             hudCall('POST', '/hud-api/send', { sessionId: sessionId, text: text }).then(function (res) {
               if (!res || !res.ok) {
-                pendingRef.current = pendingRef.current.filter(function (t) { return t !== text })
+                pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).filter(function (t) { return t !== text })
                 if (res && res.error === 'not-live') {
                   setNotice('会话未激活，正在为你打开…')
                   if (sessionsService) sessionsService.open(sessionId)
@@ -489,7 +490,7 @@ window.__ModuleLoader__.load({
                 }
               }
             }).catch(function (error) {
-              pendingRef.current = pendingRef.current.filter(function (t) { return t !== text })
+              pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).filter(function (t) { return t !== text })
               setNotice('发送失败：' + String(error))
             }).finally(function () {
               setSending(false)
@@ -839,19 +840,19 @@ window.__ModuleLoader__.load({
             var text = input ? input.value : ''
             if (!text.trim()) return
             pipSending = true
-            pendingRef.current = pendingRef.current.concat([text])
+            pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).concat([text])
             if (input) input.value = ''
             if (pipRefs.sendBtn) pipRefs.sendBtn.disabled = true
             hudCall('POST', '/hud-api/send', { sessionId: sessionId, text: text }).then(function (res) {
               if (!res || !res.ok) {
-                pendingRef.current = pendingRef.current.filter(function (t) { return t !== text })
+                pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).filter(function (t) { return t !== text })
                 if (res && res.error === 'not-live') {
                   setNotice('会话未激活，正在为你打开…')
                   if (sessionsService) sessionsService.open(sessionId)
                 }
               }
             }).catch(function () {
-              pendingRef.current = pendingRef.current.filter(function (t) { return t !== text })
+              pendingBySession.current[sessionId] = (pendingBySession.current[sessionId] || []).filter(function (t) { return t !== text })
             }).finally(function () {
               pipSending = false
               if (pipRefs.sendBtn && pipRefs.input) pipRefs.sendBtn.disabled = !pipRefs.input.value.trim()
@@ -876,7 +877,10 @@ window.__ModuleLoader__.load({
 
           var serverUserTexts = new Set()
           for (var ri = 0; ri < rows.length; ri++) if (rows[ri].kind === 'user') serverUserTexts.add(rows[ri].text)
-          var pendingVisible = pendingRef.current.filter(function (t) { return !serverUserTexts.has(t) })
+          var pendingList = pendingBySession.current[sessionId] || []
+          var pendingVisible = pendingList.filter(function (t) { return !serverUserTexts.has(t) })
+          // 服务端已确认的条目从待确认列表移除，避免 rows 剪裁后残留“复活”
+          if (pendingVisible.length !== pendingList.length) pendingBySession.current[sessionId] = pendingVisible
 
           var title = meta ? meta.displayTitle : (sessionId ? sessionId : '未选择会话')
           var running = sessionId ? Boolean(meta && meta.running) : false
