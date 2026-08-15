@@ -375,6 +375,14 @@ window.__ModuleLoader__.load({
             if (nearBottom) el.scrollTop = el.scrollHeight
           }, [rowsKey, pendingCount])
 
+          // ---- 打开/回到页内时定位到最新消息（DOM 重建后 scrollTop 归零） ----
+          React.useEffect(function () {
+            if (hud.open && !hud.pip) {
+              var el = scrollRef.current
+              if (el) el.scrollTop = el.scrollHeight
+            }
+          }, [hud.open, hud.pip])
+
           var modelGroups = (modelInfo && Array.isArray(modelInfo.groups)) ? modelInfo.groups : []
           var currentSel = modelInfo && modelInfo.current ? modelInfo.current : null
           var curGroup = currentSel ? modelGroups.find(function (g) { return g.id === currentSel.provider }) : null
@@ -749,6 +757,8 @@ window.__ModuleLoader__.load({
             var last = merged.length > 0 ? merged[merged.length - 1] : null
             var structuralKey = merged.length + ':' + (last ? String(last.seq) + ':' + last.kind : '')
             if (r.structuralKey !== structuralKey) {
+              // 首次构建（窗口刚打开）总是定位到底部；后续增量按 nearBottom 判断
+              var firstRender = r.structuralKey === null
               r.structuralKey = structuralKey
               r.scroll.textContent = ''
               if (merged.length === 0) {
@@ -760,7 +770,7 @@ window.__ModuleLoader__.load({
                 for (var j = 0; j < merged.length; j++) r.scroll.appendChild(pipRowEl(merged[j]))
               }
               var sc = r.scroll
-              if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80) sc.scrollTop = sc.scrollHeight
+              if (firstRender || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80) sc.scrollTop = sc.scrollHeight
             } else if (last && r.scroll.lastChild) {
               var bubble = r.scroll.lastChild
               var mdEl = bubble.lastChild
