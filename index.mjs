@@ -134,10 +134,13 @@ export default {
     // 原样行为——插件安全降级。
     let hudOpen = true
     let approvalListenerActive = false
+    let approvalCount = 0
+    let lastApproval = null
     const pendingApprovals = new Map() // approvalId -> { approvalId, sessionId, toolName, callId, reason, resolve }
 
     ctx.on('approval/request', (req, next) => {
       approvalListenerActive = true
+      approvalCount += 1
       // HUD 未打开时透传给主界面（api-proxy 的 answerer）
       if (!hudOpen) return next()
       // 从会话日志反向查找未决的 approval/asked 事件（与 api-proxy 同一逻辑）
@@ -155,9 +158,12 @@ export default {
         }
       }
       if (approvalId === undefined) return next()
+      const sessionId = req.agent.session.id
+      lastApproval = { approvalId: approvalId, sessionId: sessionId, toolName: req.toolName, at: Date.now() }
       return new Promise((resolve) => {
         const settle = (outcome) => {
           pendingApprovals.delete(approvalId)
+          if (lastApproval) lastApproval.outcome = outcome
           req.signal?.removeEventListener('abort', onAbort)
           resolve(outcome)
         }
@@ -165,7 +171,7 @@ export default {
         req.signal?.addEventListener('abort', onAbort, { once: true })
         pendingApprovals.set(approvalId, {
           approvalId: approvalId,
-          sessionId: req.agent.session.id,
+          sessionId: sessionId,
           toolName: req.toolName,
           callId: req.callId,
           reason: req.reason,
@@ -391,9 +397,9 @@ export default {
       const agents = ctx.get('agents')
       const agent = agents ? agents.get(sessionId) : undefined
       const status = agent ? (agent.status === 'running' ? 'running' : 'idle') : 'idle'
+      // 审批不过滤会话：HUD 是全局控制面，显示所有 pending 审批
       const approvals = Array.from(pendingApprovals.values())
-        .filter((a) => a.sessionId === sessionId)
-        .map((a) => ({ approvalId: a.approvalId, toolName: a.toolName, callId: a.callId, reason: a.reason }))
+        .map((a) => ({ approvalId: a.approvalId, sessionId: a.sessionId, toolName: a.toolName, callId: a.callId, reason: a.reason }))
       return {
         rows: buffer.rows,
         status: status,
@@ -413,6 +419,8 @@ export default {
           sendJson(res, 200, {
             hudOpen,
             approvalListenerActive,
+            approvalCount,
+            lastApproval,
             pendingCount: pendingApprovals.size,
             pendingIds: Array.from(pendingApprovals.keys()),
           })
