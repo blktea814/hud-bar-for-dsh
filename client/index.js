@@ -38,12 +38,24 @@ window.__ModuleLoader__.load({
       '.hudflt-composer{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)}',
       '.hudflt-composer-opts{display:flex;flex:1 1 100%;gap:6px}.hudflt-composer-opts select{flex:1;min-width:0;max-width:none}',
       '.hudflt-input{flex:1;resize:none;min-height:38px;max-height:120px;background:rgba(255,255,255,0.06);color:#e2e8f0;border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:6px 8px;font:inherit;outline:none}.hudflt-input:focus{border-color:rgba(129,140,248,0.6)}',
-      '.hudflt-send{border:none;border-radius:8px;padding:0 14px;background:#6366f1;color:#fff;font-size:13px;cursor:pointer}.hudflt-send:disabled{opacity:0.4;cursor:default}.hudflt-send.hudflt-stop{background:#dc2626}.hudflt-send.hudflt-stop:hover{background:#b91c1c}',
+      '.hudflt-send{flex:none;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:8px;background:#6366f1;color:#fff;cursor:pointer;padding:0}.hudflt-send svg{display:block}.hudflt-send:disabled{opacity:0.4;cursor:default}.hudflt-send.hudflt-stop{background:#dc2626}.hudflt-send.hudflt-stop:hover{background:#b91c1c}',
       '.hudflt-resize{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize}.hudflt-resize::before{content:\'\';position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:2px solid rgba(148,163,184,0.5);border-bottom:2px solid rgba(148,163,184,0.5);border-bottom-right-radius:3px}',
       '.hudflt-md pre{background:rgba(0,0,0,0.35);border-radius:6px;padding:6px 8px;overflow-x:auto;font-size:12px;margin:4px 0}.hudflt-md code{background:rgba(0,0,0,0.35);border-radius:4px;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.hudflt-md pre code{background:none;padding:0}.hudflt-md a{color:#818cf8;text-decoration:underline}.hudflt-md h1,.hudflt-md h2,.hudflt-md h3,.hudflt-md h4{margin:6px 0 2px;font-size:14px}.hudflt-md h5,.hudflt-md h6{margin:4px 0 2px;font-size:12px}.hudflt-md p{margin:2px 0}.hudflt-md ul,.hudflt-md ol{margin:2px 0;padding-left:18px}.hudflt-md blockquote{border-left:3px solid rgba(129,140,248,0.5);margin:4px 0;padding-left:8px;color:#b6c2d9}.hudflt-md hr{border:none;border-top:1px solid rgba(148,163,184,0.3);margin:6px 0}',
       '.hudflt-toggle{display:flex;align-items:center;justify-content:center;min-height:30px;padding:4px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap}.hudflt-toggle:hover{background:rgba(255,255,255,0.08);color:#e2e8f0}.hudflt-toggle-on{color:#818cf8;border-color:rgba(129,140,248,0.35)}',
     ].join('')
     var PIP_CSS = '.hudflt-bar-pip{position:fixed;inset:0;display:flex;flex-direction:column;background:rgba(13,15,24,0.98);color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif;font-size:13px;overflow:hidden}.hudflt-bar-pip .hudflt-header{cursor:default}.hudflt-bar-pip .hudflt-header:active{cursor:default}.hudflt-bar-pip .hudflt-scroll{flex:1}'
+
+    // ---- 发送 / 停止生成图标（与网页版 composer 一致） ----
+    var ICON_SEND_HTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor"/></svg>'
+    var ICON_STOP_HTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor"/></svg>'
+    function sendIcon() {
+      return React.createElement('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
+        React.createElement('path', { d: 'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z', fill: 'currentColor' }))
+    }
+    function stopIcon() {
+      return React.createElement('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
+        React.createElement('rect', { x: '3', y: '3', width: '10', height: '10', rx: '3', fill: 'currentColor' }))
+    }
 
     // ---------- 轻量 Markdown 渲染（React 版 + PiP HTML 版） ----------
     function mdInlineTokens(text) {
@@ -572,7 +584,7 @@ window.__ModuleLoader__.load({
             composerOpts.className = 'hudflt-composer-opts'
             var sendBtn = doc.createElement('button')
             sendBtn.className = 'hudflt-send'
-            sendBtn.textContent = '发送'
+            sendBtn.innerHTML = ICON_SEND_HTML
             sendBtn.disabled = true
             sendBtn.addEventListener('click', function () {
               if (pipActionsRef.current) pipActionsRef.current.onPrimary()
@@ -636,9 +648,8 @@ window.__ModuleLoader__.load({
               ss.appendChild(o)
             })
             ss.addEventListener('change', function () { if (pipActionsRef.current) pipActionsRef.current.pickSession(ss.value) })
-            function makeModelSelect(wide) {
+            function makeModelSelect() {
               var s = makeSel('切换模型')
-              if (wide) s.className = 'hudflt-session-picker hudflt-control hudflt-control-wide'
               var ph3 = doc.createElement('option')
               ph3.value = ''
               ph3.disabled = true
@@ -678,29 +689,23 @@ window.__ModuleLoader__.load({
               s.addEventListener('change', function () { if (pipActionsRef.current) pipActionsRef.current.setEffort(s.value) })
               return s
             }
-            var ms = makeModelSelect(true)
-            var es = makeEffortSelect()
             row.appendChild(ws)
             row.appendChild(ss)
-            row.appendChild(ms)
-            row.appendChild(es)
             if (pipRefs.controls) pipRefs.bar.replaceChild(row, pipRefs.controls)
             else pipRefs.bar.insertBefore(row, pipRefs.scroll)
             pipRefs.controls = row
             pipRefs.wsSel = ws
             pipRefs.ssSel = ss
-            pipRefs.msSel = ms
-            pipRefs.esSel = es
             // 输入框上方的模型 / 推理强度（与页内 composer 一致）
             var optsRow = pipRefs.composerOpts
             if (optsRow) {
               optsRow.textContent = ''
-              var ms2 = makeModelSelect(false)
-              var es2 = makeEffortSelect()
-              optsRow.appendChild(ms2)
-              optsRow.appendChild(es2)
-              pipRefs.cmsSel = ms2
-              pipRefs.cesSel = es2
+              var ms = makeModelSelect()
+              var es = makeEffortSelect()
+              optsRow.appendChild(ms)
+              optsRow.appendChild(es)
+              pipRefs.cmsSel = ms
+              pipRefs.cesSel = es
             }
           }
 
@@ -719,7 +724,7 @@ window.__ModuleLoader__.load({
             }
             if (r.sendBtn) {
               var stopping = statusRunning
-              r.sendBtn.textContent = stopping ? '停止生成' : '发送'
+              r.sendBtn.innerHTML = stopping ? ICON_STOP_HTML : ICON_SEND_HTML
               r.sendBtn.className = 'hudflt-send' + (stopping ? ' hudflt-stop' : '')
               r.sendBtn.title = stopping ? '停止生成' : '发送消息'
               r.sendBtn.disabled = stopping ? false : (pipSending || !sessionId || !(r.input && r.input.value.trim()))
@@ -732,8 +737,6 @@ window.__ModuleLoader__.load({
             try {
               if (r.wsSel) r.wsSel.value = wsValue || ''
               if (r.ssSel) r.ssSel.value = sessionId || ''
-              if (r.msSel) r.msSel.value = modelValue
-              if (r.esSel) r.esSel.value = effortValue
               if (r.cmsSel) r.cmsSel.value = modelValue
               if (r.cesSel) r.cesSel.value = effortValue
             } catch (error) { /* ignore */ }
@@ -946,23 +949,7 @@ window.__ModuleLoader__.load({
               value: sessionId || '',
               onChange: function (e) { onPickSession(e.target.value) },
               title: '切换会话（同时切换主界面）',
-            }, [React.createElement('option', { key: 'ss-ph', value: '', disabled: true }, '会话')].concat(sessionOptions)),
-            React.createElement('select', {
-              className: 'hudflt-session-picker hudflt-control hudflt-control-wide',
-              value: modelValue,
-              onChange: function (e) {
-                var v = e.target.value
-                var idx = v.indexOf('|')
-                if (idx > 0) onModelChange(v.slice(0, idx), v.slice(idx + 1))
-              },
-              title: '切换模型（下一轮生效，同步保存为默认）',
-            }, [React.createElement('option', { key: 'm-ph', value: '', disabled: true }, '模型')].concat(modelOptions)),
-            React.createElement('select', {
-              className: 'hudflt-session-picker hudflt-control',
-              value: effortValue,
-              onChange: function (e) { onEffortChange(e.target.value) },
-              title: '推理强度',
-            }, effortOptions)
+            }, [React.createElement('option', { key: 'ss-ph', value: '', disabled: true }, '会话')].concat(sessionOptions))
           )
 
           var scroll = React.createElement('div', { className: 'hudflt-scroll', ref: scrollRef },
@@ -1010,7 +997,7 @@ window.__ModuleLoader__.load({
               disabled: statusRunning ? false : (!draft.trim() || sending || !sessionId),
               onClick: statusRunning ? stopGeneration : send,
               title: statusRunning ? '停止生成' : '发送消息',
-            }, statusRunning ? '停止生成' : '发送')
+            }, statusRunning ? stopIcon() : sendIcon())
           )
           var body = React.createElement('div', { className: 'hudflt-body' },
             notice ? React.createElement('div', { className: 'hudflt-notice' }, notice) : null,
